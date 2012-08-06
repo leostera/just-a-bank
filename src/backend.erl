@@ -8,7 +8,7 @@
 % MODULE INFO                                                                 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(backend).
--vsn('1.0').
+-vsn('1.1').
 -behaviour(gen_server).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -27,7 +27,8 @@
 	 account/1, pin_valid/2, change_pin/3,
 	 balance/2, transactions/2,
 	 withdraw/3, deposit/2,
-	 transfer/4
+	 transfer/4,
+         block/1
 	]).
 
 
@@ -77,7 +78,8 @@
 %% @type date() = {Year::integer(), Month::integer(), Day::integer()}
 %%                    
 %
--record(state, {accounts}).
+-record(state, {accounts,
+                blocked = []}).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -136,6 +138,10 @@ deposit(AccountNo, Amount) ->
 transfer(Amount, From, To, Pin) ->
   gen_server:call(?MODULE, {transfer, From, To, Pin, Amount}).
 
+%%%%%
+%% @spec block(accountNo()) ->  atom(ok) | {atom(error), string()}
+%
+block(AccountNo) -> gen_server:call(?MODULE, {block, AccountNo}).
 
 %%%%%
 %% @spec balance(accountNo(), integer()) ->
@@ -192,13 +198,23 @@ handle_call({new_account, [Balance, Pin, Name]}, _, State) ->
   NewAccounts = ?DB:insert(new_account(No, Balance, Pin, Name), Accounts),
   {reply, ok, State#state{accounts = NewAccounts}};
 handle_call({balance, AccountN, Pin}, _, State) ->
-  {reply, balance(AccountN, Pin, State), State};
+  case lists:member(AccountN, State#state.blocked) of
+    true -> {reply, 0, State};
+    false -> {reply, balance(AccountN, Pin, State), State}
+  end;
 handle_call({transactions, AccountN, Pin}, _, State) ->
-  {reply, transactions(AccountN, Pin, State), State};
+    case lists:member(AccountN, State#state.blocked) of
+        true -> {reply, [], State};
+        false -> {reply, transactions(AccountN, Pin, State), State}
+    end;
 handle_call({withdraw, FromAccountN, Pin, Amount}, _, State) ->
-  case withdraw(FromAccountN, Pin, Amount, State) of
-    {ok, NewState} -> {reply, ok, NewState};
-    {error, Reason} -> {reply, {error, Reason}, State}
+  case lists:member(FromAccountN, State#state.blocked) of 
+    true -> {reply, {error, "Not enough money on account!"}, State};
+    false ->
+      case withdraw(FromAccountN, Pin, Amount, State) of
+	{ok, NewState} -> {reply, ok, NewState};
+	{error, Reason} -> {reply, {error, Reason}, State}
+      end
   end;
 handle_call({deposit, ToAccountN, Amount}, _, State) ->
   case deposit(ToAccountN, Amount, State) of
@@ -215,6 +231,8 @@ handle_call({change_pin, User, OldPin, NewPin}, _, State) ->
     {ok, NewState} -> {reply, ok, NewState};
     {error, Reason} -> {reply, {error, Reason}, State}
   end;
+handle_call({block, AccountNo}, _, State) ->
+  {reply, ok, block(AccountNo, State)};
 handle_call(stop, _, State) ->
   {stop, normal, State}.
 
@@ -355,3 +373,9 @@ change_pin_i(User, OldPin, NewPin, State) ->
 		    Accounts),
       {ok, State#state{accounts = Accounts1}}
   end.
+
+%%%%%
+%% @spec block(accountNo, state()) ->  state
+%
+block(AccountNo, State) ->
+  State#state{blocked = [AccountNo | State#state.blocked]}.
