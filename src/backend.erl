@@ -8,7 +8,7 @@
 -export([start/0, start_link/0, stop/0, init/0,
          account/1, pin_valid/2, change_pin/3,
          balance/2, transactions/2,
-         withdraw/3, transfer/4
+         withdraw/3, deposit/2, transfer/4
         ]).
 
 -define(DB, db_list).
@@ -37,6 +37,7 @@ change_pin(User, OldPin, NewPin) -> call({change_pin, User, OldPin, NewPin}).
 
 withdraw(AccountNo, Pin, Amount) -> call({withdraw, AccountNo, Pin, Amount}).
 
+deposit(AccountNo, Amount) -> call({deposit, AccountNo, Amount}).
 
 transfer(Amount, From, To, Pin) -> call({transfer, From, To, Pin, Amount}).
 
