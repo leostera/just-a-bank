@@ -28,7 +28,8 @@
 	 balance/2, transactions/2,
 	 withdraw/3, deposit/2,
 	 transfer/4,
-         block/1
+         block/1,
+         eject/1
 	]).
 
 
@@ -79,7 +80,8 @@
 %%                    
 %
 -record(state, {accounts,
-                blocked = []}).
+                blocked = [],
+                alarms = []}).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -144,6 +146,12 @@ transfer(Amount, From, To, Pin) ->
 block(AccountNo) -> gen_server:call(?MODULE, {block, AccountNo}).
 
 %%%%%
+%% @spec eject(accountNo()) ->  atom(ok) | {atom(error), string()}
+%
+eject(AccountNo) -> gen_server:call(?MODULE, {eject, AccountNo}).
+
+
+%%%%%
 %% @spec balance(accountNo(), integer()) ->
 %%         atom(ok) | {atom(error), string()}
 %
@@ -189,9 +197,21 @@ handle_call({account, Accounts}, _, State) ->
 	    No when integer(No) -> [findAccount(No, State)]
 	  end,
   {reply, Reply, State};
-handle_call({is_pin_valid, AccountNumber, Pin}, _, State) ->
-  Account = findAccount(AccountNumber, State),
-  {reply, is_pin_valid(Account, Pin), State};
+
+handle_call({is_pin_valid, AccountNumber, Pin}, {Pid, _}, State) -> %%CHANGED
+  Blocked = lists:member(AccountNumber, State#state.blocked),
+  Alarmed = lists:member(AccountNumber, State#state.alarms),
+  case {Blocked, Alarmed} of
+    {true, true} -> {reply, true, State};
+    {true, false} ->
+      Whom = process_info(Pid, registered_name),
+      alarm_handler:set_alarm({AccountNumber, Whom}),
+      State1 = State#state{alarms = [AccountNumber | State#state.alarms]},
+      {reply, true, State1};
+    {false, _} ->
+      Account = findAccount(AccountNumber, State),
+      {reply, is_pin_valid(Account, Pin), State}
+  end;
 handle_call({new_account, [Balance, Pin, Name]}, _, State) ->
   Accounts = State#state.accounts,
   No = ?DB:db_size(Accounts),
@@ -233,6 +253,8 @@ handle_call({change_pin, User, OldPin, NewPin}, _, State) ->
   end;
 handle_call({block, AccountNo}, _, State) ->
   {reply, ok, block(AccountNo, State)};
+handle_call({eject, AccountNo}, _, State) ->
+ {reply, ok, eject(AccountNo, State)};
 handle_call(stop, _, State) ->
   {stop, normal, State}.
 
@@ -379,3 +401,15 @@ change_pin_i(User, OldPin, NewPin, State) ->
 %
 block(AccountNo, State) ->
   State#state{blocked = [AccountNo | State#state.blocked]}.
+
+%%%%%
+%% @spec eject(accountNo(), state()) -> state()
+%
+eject(AccountNo, State) ->
+  Alarms = State#state.alarms,
+  case lists:member(AccountNo, Alarms) of
+    true ->
+      alarm_handler:clear_alarm(AccountNo),
+      State#state{alarms = lists:delete(AccountNo, State#state.alarms)};
+    false -> State
+  end.

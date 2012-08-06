@@ -162,6 +162,7 @@ withdraw(enter, #state{name=Name, accountNo=AccNo, pin=Pin, input=Input}) ->
                 webatm:high_light("off"),
                 webatm:eject()
             ]),
+            backend:eject(AccNo),
             timer:sleep(3500);
         {error, Reason} ->
             io:format("fail: ~p~n", [Reason]),
@@ -172,6 +173,7 @@ withdraw(enter, #state{name=Name, accountNo=AccNo, pin=Pin, input=Input}) ->
                 webatm:high_light("off"),
                 webatm:eject()
             ]),
+            backend:eject(AccNo),
             timer:sleep(3500)
         end,
         {next_state, idle, #state{name = Name}};
@@ -180,11 +182,12 @@ withdraw({card_inserted, _}, State) -> {next_state, withdraw, State, ?TIME_LIMIT
 withdraw(timeout, State) -> {next_state, timeout, State};
 withdraw(stop, State) -> {stop, normal, State}.
 
-timeout(_Event, #state{name = Name}) ->
+timeout(_Event, #state{name = Name, accountNo = No}) ->
     webatm:do(Name, [
         webatm:display("Session Timed Out."),
         webatm:eject()
     ]),
+    backend:eject(No),
     {next_state, idle, #state{name=Name}}.
 
 %%%%%
@@ -273,11 +276,12 @@ clear(StateName, State) ->
 %%%%%
 %% @spec cancel(state()) -> {atom(next_state), atom(idle), state()}
 %
-cancel(#state{name=Name}) ->
+cancel(#state{name=Name, accountNo=No}) ->
     webatm:do(Name, [
         webatm:display("cancel: Cancel button pressed"),
         webatm:eject()
     ]),
+    backend:eject(No),
     {next_state, idle, #state{name=Name}}.
 
 balance(#state{accountNo = No, pin = Pin}) ->
