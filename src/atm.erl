@@ -1,139 +1,265 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% File     : atm.erl
 %%% Author   : <trainers@erlang-solutions.com>
-%%% Copyright: 1999-2011 Erlang Solutions Ltd.
+%%% Copyright: 1999-2012 Erlang Solutions Ltd.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(atm).
+-behaviour(gen_fsm).
 
--export([start/1, start_link/1, stop/1, init/1,
-         card_inserted/2, event/2]).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXPORTS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%%%%%
+% Interface
+%
+-export([start/1, start_link/1, stop/1, card_inserted/2, event/2]).
+
+%%%%%
+% gen_fsm part
+%
+-export([init/1, idle/2, get_pin/2, selection/2, withdraw/2,
+         handle_event/3, idle/3, get_pin/3, selection/3, withdraw/3,
+         handle_sync_event/4, handle_info/3, terminate/3, code_change/4 ]).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% RECORDS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -record(state, {name, accountNo, input = [], pin}).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXPORTED FUNCTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-start(Name) -> spawn(?MODULE, init, [Name]).
+%%%%%
+%% @spec start(atom()) -> {atom(ok), pid()} | {error, Reason::term()}
+%
+start(Name) -> gen_fsm:start({global, {?MODULE, Name}}, ?MODULE, Name, []).
 
-start_link(Name) -> {ok, spawn_link(?MODULE, init, [Name])}.
+%%%%%
+%% @spec start_link(atom()) -> {atom(ok), pid()} | {error, Reason::term()}
+%
+start_link(Name) ->
+    gen_fsm:start_link({global, {?MODULE, Name}}, ?MODULE, Name, []).
 
-send_event(Name, Event) -> Name ! Event.
+%%%%%
+%% @spec stop(atom()) -> atom(ok)
+%
+stop(Name) -> gen_fsm:send_event({global, {?MODULE, Name}}, stop).
 
+%%%%%
+%% @spec event(atom(), event()) -> atom(ok)
+%
+event(Name, E) -> gen_fsm:send_event({global, {?MODULE, Name}}, E).
 
-stop(Name) -> send_event(Name, stop).
+%%%%%
+%% @spec event(atom(), backend:accountNo()) -> atom(ok)
+%
+card_inserted(Name, Account) -> event(Name, {card_inserted, Account}).
 
-event(Name, E) -> send_event(Name, E).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXPORTED FUNCTIONS/GEN_FSM CALLBACKS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-card_inserted(Name, Account) -> send_event(Name, {card_inserted, Account}).
-
+%%%%%
+%% @spec init(atom()) -> {atom(ok), stateName(), state()} 
+%
 init(Name) ->
-    register(Name, self()),
-    idle(#state{name=Name}).
+    {ok, idle, #state{name = Name}}.
 
-idle(State = #state{name=Name}) ->
-    receive
-        {card_inserted, AccountNumber} ->
-            webatm:do(Name, [webatm:display("Please type your PIN code")]),
-            get_pin(#state{name=Name, accountNo = AccountNumber});
-        stop -> normal;
-        _ -> idle(State)
-    end.
+%%%%%
+%% @spec idle(event(), state()) -> {atom(next_state), stateName(), state()} |
+%%                                 {atom(stop), atom(normal())}
+%
+idle({card_inserted, AccountNumber}, #state{name = Name}) ->
+    webatm:do(Name, [webatm:display("Please type your PIN code")]),
+    {next_state, get_pin, #state{name = Name, accountNo = AccountNumber}};
+idle(clear, State) -> clear(idle, State);
+idle(cancel, State) -> cancel(State);
+idle({digit, _}, State) -> {next_state, idle, State};
+idle({selection, _}, State) -> {next_state, idle, State};
+idle(enter, State) -> {next_state, idle, State};
+idle(stop, State) -> {stop, normal, State}.
 
-get_pin(State = #state{name=Name, accountNo = AccountNo, input = Input}) ->
-    receive
-        clear -> clear(fun get_pin/1, State);
-        cancel -> cancel(State);
-        {digit, Digit} ->
-            Digits = State#state.input ++ Digit,
-            webatm:do(Name, [webatm:display(Digits)]),
-            get_pin(State#state{input = Digits});
-        enter ->
-            case backend:pin_valid(AccountNo, Input) of
-                true ->
-                    webatm:do(Name, [webatm:display("Please make your selection")]),
-                    selection(State#state{pin = Input, input = []});
-                false ->
-                    webatm:do(Name, [
-                        webatm:display("PIN code incorrect!"),
-                        webatm:append_line("Please try again.")
-                    ]),
-                    get_pin(State#state{input = []})
-            end;
-        {selection, _} -> get_pin(State);
-        stop -> normal
-    end.
-
-selection(State = #state{name=Name}) ->
-    receive
-        clear -> clear(fun selection/1, State);
-        cancel -> cancel(State);
-        {selection, withdraw} ->
+%%%%%
+%% @spec get_pin(event(), state()) -> {atom(next_state), stateName(), state()}|
+%%                                    {atom(stop), atom(normal())}
+%
+get_pin(clear, State) -> clear(get_pin, State);
+get_pin(cancel, State) -> cancel(State);
+get_pin({digit, Digit}, State = #state{name=Name}) ->
+    Digits = State#state.input ++ Digit,
+    webatm:do(Name, [webatm:display(Digits)]),
+    {next_state, get_pin, State#state{input = Digits}};
+get_pin(enter, State = #state{name = Name, accountNo = AccountNo, input=Input}) ->
+    case backend:pin_valid(AccountNo, Input) of
+        true ->
+            webatm:do(Name, [webatm:display("Please make your selection")]),
+            {next_state, selection, State#state{pin = Input, input = []}};
+        false ->
             webatm:do(Name, [
-                webatm:high_light("withdraw"),
-                webatm:display("How much would you like to withdraw?")
+                webatm:display("PIN code incorrect!"),
+                webatm:append_line("Please try again.")
             ]),
-            withdraw(State);
-        {selection, balance} ->
-            webatm:do(Name, [
-                webatm:high_light("balance"),
-                balance(State)
-            ]),
-            selection(State);
-        {selection, statement} ->
-            webatm:do(Name, [
-                webatm:high_light("statement"),
-                mini_statement(State)
-            ]),
-            selection(State);
-        {digit, _} -> selection(State);
-        enter -> selection(State);
-        stop -> normal
-    end.
+            {next_state, get_pin, State#state{input = []}}
+    end;
+get_pin({selection, _}, State) -> {next_state, get_pin, State};
+get_pin({card_inserted, _}, State) -> {next_state, get_pin, State};
+get_pin(stop, State) -> {stop, normal, State}.
 
-withdraw(State = #state{name=Name, accountNo=AccNo, pin=Pin, input=Input}) ->
-    receive
-        clear -> clear(fun withdraw/1, State);
-        cancel -> cancel(State);
-        {digit, Digit} ->
-            Digits = State#state.input ++ Digit,
-            webatm:do(Name, [webatm:display(Digits)]),
-            withdraw(State#state{input = Digits});
-        enter ->
-            Input1 = list_to_integer(Input),
-            case backend:withdraw(AccNo, Pin, Input1) of
-                ok ->
-                    io:format("ok!~n"),
-                    webatm:do(Name, [
-                        webatm:display("Take the money and run."),
-                        webatm:wait(3500),
-                        webatm:high_light("off"),
-                        webatm:eject()
-                    ]),
-                    timer:sleep(3500);
-                {error, Reason} ->
-                    io:format("fail: ~p~n", [Reason]),
-                    webatm:do(Name, [
-                        webatm:display("Could not withdraw money!"),
-                        webatm:append_line(io_lib:format("~p",[Reason])),
-                        webatm:wait(3500),
-                        webatm:high_light("off"),
-                        webatm:eject()
-                    ]),
-                    timer:sleep(3500)
-            end,
-            idle(#state{name=Name});
-        {selection, _} -> withdraw(State);
-        stop -> normal
-    end.
+%%%%%
+%% @spec selection(event(), state()) -> 
+%%         {atom(next_state), stateName(), state()} |
+%%         {atom(stop), atom(normal())}
+%
+selection(clear, State) -> clear(selection, State);
+selection(cancel, State) -> cancel(State);
+selection({selection, withdraw}, State = #state{name=Name}) ->
+    webatm:do(Name, [
+        webatm:high_light("withdraw"),
+        webatm:display("How much would you like to withdraw?")
+    ]),
+    {next_state, withdraw, State};
+selection({selection, balance}, State = #state{name=Name}) ->
+    webatm:do(Name, [
+        webatm:high_light("balance"),
+        balance(State)
+    ]),
+    {next_state, selection, State};
+selection({selection, statement}, State = #state{name=Name}) ->
+    webatm:do(Name, [
+        webatm:high_light("statement"),
+        mini_statement(State)
+    ]),
+    {next_state, selection, State};
+selection({digit, _}, State) -> {next_state, selection, State};
+selection(enter, State) -> {next_state, selection, State};
+selection({card_inserted, _}, State) -> {next_state, selection, State};
+selection(stop, State) -> {stop, normal, State}.
 
+%%%%%
+%% @spec withdraw(event(), state()) -> 
+%%         {atom(next_state), stateName(), state()} |
+%%         {atom(stop), atom(normal())}
+%
+withdraw(clear, State) -> clear(withdraw, State);
+withdraw(cancel, State) -> cancel(State);
+withdraw({digit, Digit}, State = #state{name=Name}) ->
+    Input = State#state.input ++ Digit,
+    webatm:do(Name, [webatm:display(Input)]),
+    {next_state, withdraw, State#state{input = Input}};
+withdraw(enter, #state{name=Name, accountNo=AccNo, pin=Pin, input=Input}) ->
+    case backend:withdraw(AccNo, Pin, list_to_integer(Input)) of
+        ok ->
+            webatm:do(Name, [
+                webatm:display("Take the money and run."),
+                webatm:wait(3500),
+                webatm:high_light("off"),
+                webatm:eject()
+            ]),
+            timer:sleep(3500);
+        {error, Reason} ->
+            io:format("fail: ~p~n", [Reason]),
+            webatm:do(Name, [
+                webatm:display("Could not withdraw money!"),
+                webatm:append_line(io_lib:format("~p",[Reason])),
+                webatm:wait(3500),
+                webatm:high_light("off"),
+                webatm:eject()
+            ]),
+            timer:sleep(3500)
+        end,
+        {next_state, idle, #state{name = Name}};
+withdraw({selection, _}, State) -> {next_state, withdraw, State};
+withdraw({card_inserted, _}, State) -> {next_state, withdraw, State};
+withdraw(stop, State) -> {stop, normal, State}.
+
+%%%%%
+%% @spec handle_event(Call::term(), StateName::stateName(), state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+handle_event(Event, _, State) ->
+    {stop, {"Can not handle event in state", Event}, State}.
+
+%%%%%
+%% @spec idle(Call::term(), From::{pid(), reference()}, state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+idle(Event, _, State) ->
+    {stop, {"Can not handle sync event", Event}, State}.
+
+%%%%%
+%% @spec get_pin(Call::term(), From::{pid(), reference()}, state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+get_pin(Event, _, State) ->
+    {stop, {"Can not handle sync event", Event}, State}.
+
+%%%%%
+%% @spec selection(Call::term(), From::{pid(), reference()}, state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+selection(Event, _, State) ->
+    {stop, {"Can not handle sync event", Event}, State}.
+
+%%%%%
+%% @spec withdraw(Call::term(), From::{pid(), reference()}, state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+withdraw(Event, _, State) ->
+    {stop, {"Can not handle sync event", Event}, State}.
+
+%%%%%
+%% @spec handle_sync_event(Call::term(), 
+%%                         From::{pid(), reference()}, 
+%%                         StateName::stateName(),
+%%                         state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+handle_sync_event(Event, _, _StateName, State) ->
+    {stop, {"Can not handle sync event", Event}, State}.
+
+%%%%%
+%% @spec handle_info(term(), StateName::atom(), state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+handle_info(Info, _, State) ->
+    {stop, {"Can not handle info", Info}, State}.
+
+%%%%%
+%% @spec code_change(OldVsn::term(), 
+%%                   StateName::atom(), 
+%%                   state(),
+%%                   Extra::[term()]) ->
+%%         {atom(ok), state()}
+%
+code_change(_, StateName, State, _) -> {ok, StateName, State}.
+
+%%%%%
+%% @terminate(Reason::term(), StateName::atom(), State::state()) -> none()
+%
+terminate(_, _, _) -> ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% INTERNAL FUNCTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%
+%% @spec clear(state()) -> {atom(next_state), stateName(), state()}
+%
 clear(StateName, State) ->
     webatm:do(State#state.name, [webatm:display(" ")]),
-    StateName(State#state{input = []}).
+    {next_state, StateName, State#state{input = []}}.
 
+%%%%%
+%% @spec cancel(state()) -> {atom(next_state), atom(idle), state()}
+%
 cancel(#state{name=Name}) ->
     webatm:do(Name, [
         webatm:display("cancel: Cancel button pressed"),
         webatm:eject()
     ]),
-    idle(#state{name=Name}).
+    {next_state, idle, #state{name=Name}}.
 
 balance(#state{accountNo = No, pin = Pin}) ->
     [webatm:display("Balance:"), webatm:append_line("-------------------------"),
@@ -157,6 +283,9 @@ mini_statement(#state{accountNo = No, pin = Pin}) ->
     [webatm:display("Mini Statement:"), webatm:append_line("---------------------"),
         Trs2, webatm:append_line(io_lib:format("Balance: £ ~p", [Balance]))].
 
+%%%%%
+%% @spec select10([backend:account()], integer()) -> [backend:account()]
+%
 select10([], Acc, _) -> Acc;
 select10(_, Acc, 0) -> Acc;
 select10([H | T], Acc, N) -> select10(T, [H | Acc], N - 1).
