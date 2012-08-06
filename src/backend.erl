@@ -1,133 +1,281 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% File     : backend.erl
 %%% Author   : <trainers@erlang-solutions.com>
-%%% Copyright: 1999-2011 Erlang Solutions Ltd.
+%%% Copyright: 1999-2012 Erlang Solutions Ltd.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--module(backend).
--include("../include/backend.hrl").
--export([start/0, start_link/0, stop/0, init/0,
-         account/1, pin_valid/2, change_pin/3,
-         balance/2, transactions/2,
-         withdraw/3, deposit/2, transfer/4
-        ]).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% MODULE INFO                                                                 %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-module(backend).
+-vsn('1.0').
+-behaviour(gen_server).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% INCLUDES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-include("backend.hrl").
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXPORTS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%
+% Interface
+%
+-export([start_link/0, stop/0,
+	 account/1, pin_valid/2, change_pin/3,
+	 balance/2, transactions/2,
+	 withdraw/3, deposit/2,
+	 transfer/4
+	]).
+
+
+%%%%%
+% Gen Server part
+%
+-export([init/1,
+	 handle_call/3,
+	 handle_cast/2,
+	 handle_info/2,
+	 terminate/2,
+	 code_change/3
+	]).
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DEFINES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(DB, db_list).
 -define(ACCOUNTS,
-        [{1, 100, "1234", "Henry Nystrom"},
-         {2, 200, "4321", "Francesco Cesarini"},
-         {3, 1000, "1111", "Donald Duck"},
-         {4, 5000, "1234", "Henry Nystrom"}
-        ]).
+	[{1, 100, "1234", "Henry Nystrom"},
+	 {2, 200, "4321", "Fransceco Cesarini"},
+	 {3, 1000, "1111", "Donald Duck"},
+	 {4, 5000, "1234", "Henry Nystrom"}
+	]).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% RECORDS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%
+%% @type state() = {db_list:db(), [accountNo()]}
+%%
+%% @type account() = {accountNo(),
+%%                    balance(),
+%%                    pin(),
+%%                    name(),
+%%                    [transaction()],
+%%                    integer()
+%%                    }
+%%
+%% @type accountNo() = integer()
+%% @type balance() = integer()
+%% @type pin() = string()
+%% @type name() = string()
+%% @type transaction() = {atom(), date(), Amount::integer()}
+%% @type date() = {Year::integer(), Month::integer(), Day::integer()}
+%%                    
+%
 -record(state, {accounts}).
 
-start() -> spawn(?MODULE, init, []).
 
-start_link() -> {ok, spawn_link(?MODULE, init, [])}.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXPORTED FUNCTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-
-stop() -> ?MODULE ! stop.
-
-account(Account) -> call({account, Account}).
-
-pin_valid(AccountNo, Input) -> call({pin_valid, AccountNo, Input}).
-
-change_pin(User, OldPin, NewPin) -> call({change_pin, User, OldPin, NewPin}).
+%%%%%
+%% @spec start_link() -> {atom(ok), pid()} | {error, Reason::term()}
+%
+start_link() ->
+  gen_server:start_link({local, ?MODULE}, ?MODULE, no_args, []).
 
 
-withdraw(AccountNo, Pin, Amount) -> call({withdraw, AccountNo, Pin, Amount}).
+%%%%%
+%% @spec stop() -> atom(ok)
+%
+stop() -> gen_server:call(?MODULE, stop).
 
-deposit(AccountNo, Amount) -> call({deposit, AccountNo, Amount}).
+%%%%%
+%% @spec account(atom() | accountNo()) -> [account()]
+%
+account(Account) -> gen_server:call(?MODULE, {account, Account}).
 
-transfer(Amount, From, To, Pin) -> call({transfer, From, To, Pin, Amount}).
+
+%%%%%
+%% @spec pin_valid(accountNo(), string()) -> bool()
+%
+pin_valid(AccountNo, Input) ->
+  gen_server:call(?MODULE, {is_pin_valid, AccountNo, Input}).
+
+%%%%%
+%% @spec change_pin(string(), string(), string()) -> bool()
+%
+change_pin(User, OldPin, NewPin) ->
+  gen_server:call(?MODULE, {change_pin, User, OldPin, NewPin}).
 
 
-balance(AccountNo, Pin) -> call({balance, AccountNo, Pin}).
+%%%%%
+%% @spec withdraw(accountNo(), string(), integer()) ->
+%%         atom(ok) | {atom(error), string()}
+%
+withdraw(AccountNo, Pin, Amount) ->
+  gen_server:call(?MODULE, {withdraw, AccountNo, Pin, Amount}).
 
-transactions(AccountNo, Pin) -> call({transactions, AccountNo, Pin}).
+%%%%%
+%% @spec deposit(accountNo(), integer()) ->
+%%         atom(ok) | {atom(error), string()}
+%
+deposit(AccountNo, Amount) ->
+  gen_server:call(?MODULE, {deposit, AccountNo, Amount}).
 
-call(X) ->
-  ?MODULE ! {X, self()},
-  receive {?MODULE, reply, R} -> R end.
+%%%%%
+%% @spec transfer(accountNo(), string(), integer()) ->
+%%         atom(ok) | {atom(error), string()}
+%
+transfer(Amount, From, To, Pin) ->
+  gen_server:call(?MODULE, {transfer, From, To, Pin, Amount}).
 
-reply(To, X) -> To ! {?MODULE, reply, X}.
 
-init() ->
+%%%%%
+%% @spec balance(accountNo(), integer()) ->
+%%         atom(ok) | {atom(error), string()}
+%
+balance(AccountNo, Pin) ->
+  gen_server:call(?MODULE, {balance, AccountNo, Pin}).
+
+%%%%%
+%% @spec balance(accountNo(), integer()) ->
+%%         atom(ok) | {atom(error), string()}
+%
+transactions(AccountNo, Pin) ->
+  gen_server:call(?MODULE, {transactions, AccountNo, Pin}).
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% EXPORTED FUNCTIONS/GEN_SERVER CALLBACKS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%
+%% @spec init(atom(no_args)) -> {ok, state()}
+%
+init(no_args) ->
   process_flag(trap_exit, true),
-  register(?MODULE, self()),
   Accounts =
     lists:foldl(fun({No, Balance, Pin, Name}, DB) ->
 		    ?DB:insert(new_account(No, Balance, Pin, Name), DB)
 		end,
 		?DB:empty(),
 		?ACCOUNTS),
-  loop(#state{accounts = Accounts}).
+  {ok, #state{accounts = Accounts}}.
 
-loop(State) ->
-  receive 
-    {{account, Accounts}, From} ->
-      Reply =
-	case Accounts of
-	  all ->
-	    lists:map(fun(#account{no = No, name = Name}) -> {No, Name} end,
-		      ?DB:db_to_list(State#state.accounts));
-	  Name when is_list(Name) -> find_account(Name, State);
-	  No when is_integer(No) -> [find_account(No, State)]
-	end,
-      reply(From, Reply),
-      loop(State);
-    {{pin_valid, AccountNumber, Pin}, From} ->
-      Account = find_account(AccountNumber, State),
-      reply(From, do_pin_valid(Account, Pin)),
-      loop(State);
-    {{new_account, [Balance, Pin, Name]}, From} ->
-      Accounts = State#state.accounts,
-      No = ?DB:db_size(Accounts) + 1,
-      NewAccounts = ?DB:insert(new_account(No, Balance, Pin, Name), Accounts),
-      reply(From, ok),
-      loop(State#state{accounts = NewAccounts});
-    {{balance, AccountN, Pin}, From} ->
-      reply(From, do_balance(AccountN, Pin, State)),
-      loop(State);
-    {{transactions, AccountN, Pin}, From} ->
-      reply(From, do_transactions(AccountN, Pin, State)),
-      loop(State);
-    {{withdraw, FromAccountN, Pin, Amount}, From} ->
-      case do_withdraw(FromAccountN, Pin, Amount, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    {{deposit, ToAccountN, Amount}, From} ->
-      case do_deposit(ToAccountN, Amount, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    {{transfer, FromAccountN, ToAccountN, Pin, Amount}, From} ->
-      case do_transfer(FromAccountN, ToAccountN, Pin, Amount, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    {{change_pin, User, OldPin, NewPin}, From} ->
-      case do_change_pin(User, OldPin, NewPin, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    stop -> normal
-  end.
 
+%%%%%
+%% @spec handle_call(Call::term(), From::{pid(), reference()}, state()) ->
+%%         {atom(reply), Reply::term(), state()}
+%
+handle_call({account, Accounts}, _, State) ->
+  Reply = case Accounts of
+	    all ->
+	      lists:map(fun(#account{no = No, name = Name}) -> {No, Name} end,
+			?DB:db_to_list(State#state.accounts));
+	    Name when list(Name) -> findAccount(Name, State);
+	    No when integer(No) -> [findAccount(No, State)]
+	  end,
+  {reply, Reply, State};
+handle_call({is_pin_valid, AccountNumber, Pin}, _, State) ->
+  Account = findAccount(AccountNumber, State),
+  {reply, is_pin_valid(Account, Pin), State};
+handle_call({new_account, [Balance, Pin, Name]}, _, State) ->
+  Accounts = State#state.accounts,
+  No = ?DB:db_size(Accounts),
+  NewAccounts = ?DB:insert(new_account(No, Balance, Pin, Name), Accounts),
+  {reply, ok, State#state{accounts = NewAccounts}};
+handle_call({balance, AccountN, Pin}, _, State) ->
+  {reply, balance(AccountN, Pin, State), State};
+handle_call({transactions, AccountN, Pin}, _, State) ->
+  {reply, transactions(AccountN, Pin, State), State};
+handle_call({withdraw, FromAccountN, Pin, Amount}, _, State) ->
+  case withdraw(FromAccountN, Pin, Amount, State) of
+    {ok, NewState} -> {reply, ok, NewState};
+    {error, Reason} -> {reply, {error, Reason}, State}
+  end;
+handle_call({deposit, ToAccountN, Amount}, _, State) ->
+  case deposit(ToAccountN, Amount, State) of
+    {ok, NewState} -> {reply, ok, NewState};
+    {error, Reason} -> {reply, {error, Reason}, State}
+  end;
+handle_call({transfer, FromAccountN, ToAccountN, Pin, Amount}, _, State) ->
+  case transfer(FromAccountN, ToAccountN, Pin, Amount, State) of
+    {ok, NewState} -> {reply, ok, NewState};
+    {error, Reason} -> {reply, {error, Reason}, State}
+  end;
+handle_call({change_pin, User, OldPin, NewPin}, _, State) ->
+  case change_pin_i(User, OldPin, NewPin, State) of
+    {ok, NewState} -> {reply, ok, NewState};
+    {error, Reason} -> {reply, {error, Reason}, State}
+  end;
+handle_call(stop, _, State) ->
+  {stop, normal, State}.
+
+%%%%%
+%% @spec handle_cast(Cast::term(), state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+handle_cast(Cast, State) -> {stop, {"Can not handle cast", Cast}, State}.
+
+
+%%%%%
+%% @spec handle_info(term(), state()) ->
+%%         {atom(stop), Reason::string(), state()}
+%
+handle_info(Info, State) -> {stop, {"Can not handle info", Info}, State}.
+  
+ 
+
+%%%%%
+%% @spec code_change(OldVsn::term(), state(), Extra::[term()]) ->
+%%         {atom(ok), state()}
+%
+code_change(_, State, _) ->
+  {ok, State}.
+
+%%%%%
+%% @terminate(Reason::term(), State::state()) -> none()
+%
+terminate(shutdown, State) -> ?DB:close(State#state.accounts);
+terminate(_, _) -> ok.
+
+   
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% INTERNAL FUNCTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%
+%% @spec new_account(integer(), balance(), pin(), name()) -> account()
+%
 new_account(No, Balance, Pin, Name) ->
   #account{no = No, balance = Balance, pin = Pin, name = Name}.
 
-find_account(AccountN, State) when is_integer(AccountN) ->
+%%%%%
+%% @spec (accountNo(), state()) -> account()
+%
+findAccount(AccountN, State) when integer(AccountN) ->
   ?DB:lookup(AccountN, State#state.accounts);
-find_account(User, State) when is_list(User) ->
+findAccount(User, State) when list(User) ->
   ?DB:lookup_all(#account.name, User, State#state.accounts).
 
-do_withdraw(_, _, Amount, _) when Amount < 0 -> {error, "Negative value"};
-do_withdraw(AccountN, Pin, Amount, State) ->
+%%%%%
+%% @spec withdraw(accountNo(), pin(), integer(), state()) ->
+%%         {atom(ok), state()} | {atom(error), Reason::string()}
+%
+withdraw(AccountN, Pin, Amount, State) ->
   Account = #account{balance = OldBalance, transactions = OldTransactions} =
-    find_account(AccountN, State),
-  case do_pin_valid(Account, Pin) of
+    findAccount(AccountN, State),
+  case is_pin_valid(Account, Pin) of
     false -> {error, "PIN code not valid!"};
     true when OldBalance < Amount -> {error, "Not enough money on account!"};
     true ->
@@ -139,9 +287,13 @@ do_withdraw(AccountN, Pin, Amount, State) ->
       {ok, State#state{accounts = NewAccounts}}
   end.
 
-do_deposit(AccountN, Amount, State) ->
+
+%%%%%
+%% @spec deposit(accountNo(), integer(), state()) -> {atom(ok), state()}
+%
+deposit(AccountN, Amount, State) ->
   Account = #account{balance = OldBalance, transactions = OldTransactions} =
-    find_account(AccountN, State),
+    findAccount(AccountN, State),
   NewBalance = OldBalance + Amount,
   NewTransactions = [{deposit, date(), Amount} | OldTransactions],
   AccountUpdated =
@@ -149,41 +301,57 @@ do_deposit(AccountN, Amount, State) ->
   NewAccounts = ?DB:update(AccountUpdated, State#state.accounts),
   {ok, State#state{accounts = NewAccounts}}.
 
-do_balance(AccountN, Pin, State) ->
-  Account = find_account(AccountN, State),
-  case do_pin_valid(Account, Pin) of
+%%%%%
+%% @spec balance(accountNo(), pin(), state()) -> Balance::integer()
+%
+balance(AccountN, Pin, State) ->
+  Account = findAccount(AccountN, State),
+  case is_pin_valid(Account, Pin) of
     true -> Account#account.balance;
     false -> {error, "PIN code not valid!"}
   end.
 	
-do_transactions(AccountN, Pin, State) ->
-  Account = find_account(AccountN, State),
-  case do_pin_valid(Account, Pin) of
+%%%%%
+%% @spec transactions(accountNo(), pin(), state()) ->
+%%         Transactions::[transaction()]
+%
+transactions(AccountN, Pin, State) ->
+  Account = findAccount(AccountN, State),
+  case is_pin_valid(Account, Pin) of
     true -> Account#account.transactions;
     false -> {error, "PIN code not valid!"}
   end.
 
-do_transfer(FromAccountN, ToAccountN, Pin, Amount, State) ->
-  case do_withdraw(FromAccountN, Pin, Amount, State) of
-    {ok, NewState} -> do_deposit(ToAccountN, Amount, NewState);
+%%%%%
+%% @spec transfer(accountNo(), accountNo(), pin(), integer(), state()) ->
+%%         {atom(ok), state()} | {atom(error), Reason::string()}
+%
+transfer(FromAccountN, ToAccountN, Pin, Amount, State) ->
+  case withdraw(FromAccountN, Pin, Amount, State) of
+    {ok, NewState} -> deposit(ToAccountN, Amount, NewState);
     {error, Reason} -> {error, Reason}
   end.
 
-do_pin_valid([], _) -> false;
-do_pin_valid([Account | _], Pin) -> Account#account.pin == Pin;
-do_pin_valid(Account, Pin) -> Account#account.pin == Pin.
+%%%%%
+%% @spec is_pin_valid(account() | [account], pin()) -> bool()
+%
+is_pin_valid([], _) -> false;
+is_pin_valid([Account | _], Pin) -> Account#account.pin == Pin;
+is_pin_valid(Account, Pin) -> Account#account.pin == Pin.
 
-do_change_pin(User, OldPin, NewPin, State) ->
-  Accounts = find_account(User, State),
-  case do_pin_valid(Accounts, OldPin) of
+%%%%%
+%% @spec change_pin_i(string(), string(), string()) -> bool()
+%
+change_pin_i(User, OldPin, NewPin, State) ->
+  Accounts = findAccount(User, State),
+  case is_pin_valid(Accounts, OldPin) of
     false -> {error, "Wrong Pin"};
     true ->
       Accounts1 =
-        lists:foldl(fun(Account, Acc) ->
-                        ?DB:update(Account#account{pin = NewPin}, Acc)
-                    end,
-                    State#state.accounts,
-                    Accounts),
+	lists:foldl(fun(Account, Acc) ->
+			?DB:update(Account#account{pin = NewPin}, Acc)
+		    end,
+		    State#state.accounts,
+		    Accounts),
       {ok, State#state{accounts = Accounts1}}
   end.
-
