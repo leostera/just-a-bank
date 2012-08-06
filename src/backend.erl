@@ -35,10 +35,10 @@ pin_valid(AccountNo, Input) -> call({pin_valid, AccountNo, Input}).
 change_pin(User, OldPin, NewPin) -> call({change_pin, User, OldPin, NewPin}).
 
 
-withdraw(AccountNo, Pin, Ammount) -> call({withdraw, AccountNo, Pin, Ammount}).
+withdraw(AccountNo, Pin, Amount) -> call({withdraw, AccountNo, Pin, Amount}).
 
 
-transfer(Ammount, From, To, Pin) -> call({transfer, From, To, Pin, Ammount}).
+transfer(Amount, From, To, Pin) -> call({transfer, From, To, Pin, Amount}).
 
 
 balance(AccountNo, Pin) -> call({balance, AccountNo, Pin}).
