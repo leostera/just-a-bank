@@ -1,10 +1,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% File     : backend.erl
 %%% Author   : <trainers@erlang-solutions.com>
-%%% Copyright: 1999-2011 Erlang Solutions Ltd.
+%%% Copyright: 1999-2012 Erlang Solutions Ltd.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(backend).
--include("../include/backend.hrl").
+-include("backend.hrl").
 -export([start/0, start_link/0, stop/0, init/0,
          account/1, pin_valid/2, change_pin/3,
          balance/2, transactions/2,
