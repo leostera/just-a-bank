@@ -210,7 +210,9 @@ handle_call({is_pin_valid, AccountNumber, Pin}, {Pid, _}, State) -> %%CHANGED
       {reply, true, State1};
     {false, _} ->
       Account = findAccount(AccountNumber, State),
-      {reply, is_pin_valid(Account, Pin), State}
+      Bool = is_pin_valid(Account, Pin),
+      stats:log({login, AccountNumber, Bool}),
+      {reply, Bool, State}
   end;
 handle_call({new_account, [Balance, Pin, Name]}, _, State) ->
   Accounts = State#state.accounts,
@@ -232,18 +234,24 @@ handle_call({withdraw, FromAccountN, Pin, Amount}, _, State) ->
     true -> {reply, {error, "Not enough money on account!"}, State};
     false ->
       case withdraw(FromAccountN, Pin, Amount, State) of
-	{ok, NewState} -> {reply, ok, NewState};
+	{ok, NewState} ->
+              stats:log({withdraw, FromAccountN, Amount}),
+              {reply, ok, NewState};
 	{error, Reason} -> {reply, {error, Reason}, State}
       end
   end;
 handle_call({deposit, ToAccountN, Amount}, _, State) ->
   case deposit(ToAccountN, Amount, State) of
-    {ok, NewState} -> {reply, ok, NewState};
+    {ok, NewState} ->
+          stats:log({deposit, ToAccountN, Amount}),
+          {reply, ok, NewState};
     {error, Reason} -> {reply, {error, Reason}, State}
   end;
 handle_call({transfer, FromAccountN, ToAccountN, Pin, Amount}, _, State) ->
   case transfer(FromAccountN, ToAccountN, Pin, Amount, State) of
-    {ok, NewState} -> {reply, ok, NewState};
+    {ok, NewState} ->
+          stats:log({transfer, FromAccountN, ToAccountN, Amount}),
+          {reply, ok, NewState};
     {error, Reason} -> {reply, {error, Reason}, State}
   end;
 handle_call({change_pin, User, OldPin, NewPin}, _, State) ->
@@ -254,7 +262,8 @@ handle_call({change_pin, User, OldPin, NewPin}, _, State) ->
 handle_call({block, AccountNo}, _, State) ->
   {reply, ok, block(AccountNo, State)};
 handle_call({eject, AccountNo}, _, State) ->
- {reply, ok, eject(AccountNo, State)};
+  stats:log({eject, AccountNo}),
+  {reply, ok, eject(AccountNo, State)};
 handle_call(stop, _, State) ->
   {stop, normal, State}.
 
