@@ -25,7 +25,6 @@ start() -> spawn(?MODULE, init, []).
 
 start_link() -> {ok, spawn_link(?MODULE, init, [])}.
 
-
 stop() -> ?MODULE ! stop.
 
 account(Account) -> call({account, Account}).
@@ -55,13 +54,12 @@ reply(To, X) -> To ! {?MODULE, reply, X}.
 init() ->
   process_flag(trap_exit, true),
   register(?MODULE, self()),
-  Accounts =
-    lists:foldl(fun({No, Balance, Pin, Name}, DB) ->
-		    ?DB:insert(new_account(No, Balance, Pin, Name), DB)
-		end,
-		?DB:empty(),
-		?ACCOUNTS),
-  loop(#state{accounts = Accounts}).
+  Accounts = lists:foldl(fun({No, Balance, Pin, Name}, DB) ->
+                             ?DB:insert(new_account(No, Balance, Pin, Name), DB)
+                         end,
+                         ?DB:empty(),
+                         ?ACCOUNTS),
+  {ok, #state{accounts = Accounts}}.
 
 loop(State) ->
   receive 
