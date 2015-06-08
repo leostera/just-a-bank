@@ -27,27 +27,30 @@ start_link() -> {ok, spawn_link(?MODULE, init, [])}.
 
 stop() -> ?MODULE ! stop.
 
-account(Account) -> call({account, Account}).
+account(Account) -> 
+  gen_server:call(?MODULE, {account, Account}).
 
-pin_valid(AccountNo, Input) -> call({pin_valid, AccountNo, Input}).
+pin_valid(AccountNo, Input) -> 
+  gen_server:call(?MODULE, {pin_valid, AccountNo, Input}).
 
-change_pin(User, OldPin, NewPin) -> call({change_pin, User, OldPin, NewPin}).
-
-
-withdraw(AccountNo, Pin, Amount) -> call({withdraw, AccountNo, Pin, Amount}).
-
-deposit(AccountNo, Amount) -> call({deposit, AccountNo, Amount}).
-
-transfer(Amount, From, To, Pin) -> call({transfer, From, To, Pin, Amount}).
+change_pin(User, OldPin, NewPin) -> 
+  gen_server:call(?MODULE, {change_pin, User, OldPin, NewPin}).
 
 
-balance(AccountNo, Pin) -> call({balance, AccountNo, Pin}).
+withdraw(AccountNo, Pin, Amount) -> 
+  gen_server:call(?MODULE, {withdraw, AccountNo, Pin, Amount}).
 
-transactions(AccountNo, Pin) -> call({transactions, AccountNo, Pin}).
+deposit(AccountNo, Amount) -> 
+  gen_server:call(?MODULE, {deposit, AccountNo, Amount}).
 
-call(X) ->
-  ?MODULE ! {X, self()},
-  receive {?MODULE, reply, R} -> R end.
+transfer(Amount, From, To, Pin) -> 
+  gen_server:call(?MODULE, {transfer, From, To, Pin, Amount}).
+
+balance(AccountNo, Pin) -> 
+  gen_server:call(?MODULE, {balance, AccountNo, Pin}).
+
+transactions(AccountNo, Pin) -> 
+  gen_server:call(?MODULE, {transactions, AccountNo, Pin}).
 
 reply(To, X) -> To ! {?MODULE, reply, X}.
 
