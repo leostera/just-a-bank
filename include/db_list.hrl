@@ -2,4 +2,5 @@
                   balance=0,
                   pin,
                   name,
-                  transactions=[]}).
+                  transactions=[],
+                  blocked=false}).

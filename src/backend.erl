@@ -4,18 +4,28 @@
 %%% Copyright: 1999-2012 Erlang Solutions Ltd.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(backend).
+
 -include("../include/backend.hrl").
--export([start/0, start_link/0, stop/0, init/1,
-         account/1, pin_valid/2, change_pin/3,
-         balance/2, transactions/2,
-         withdraw/3, deposit/2, transfer/4
-        ]).
+
+-export([account/1, 
+         balance/2, 
+         block/1,
+         change_pin/3,
+         deposit/2, 
+         pin_valid/2, 
+         transactions/2,
+         transfer/4,
+         withdraw/3]).
 
 -export([code_change/3,
-         terminate/2,
+         handle_call/3,
          handle_cast/2,
          handle_info/2,
-         handle_call/3]).
+         init/1,
+         start/0,
+         start_link/0, 
+         stop/0, 
+         terminate/2]).
 
 -define(DB, db_list).
 -define(ACCOUNTS,
@@ -39,6 +49,9 @@ stop() ->
   gen_server:call(?MODULE, stop).
 
 terminate(_Reason, _State) -> ok.
+
+block(Account) ->
+  gen_server:call(?MODULE, {block, Account}).
 
 account(Account) -> 
   gen_server:call(?MODULE, {account, Account}).
@@ -82,6 +95,12 @@ handle_call({account, Accounts}, _From, State) ->
             No when is_integer(No) -> [find_account(No, State)]
           end,
   {reply, Reply, State};
+
+handle_call({block, AccountNumber}, _From, State) ->
+  Account = find_account(AccountNumber, State),
+  Reply = {ok, BlockedAccount} = do_block(Account),
+  NewState = ?DB:update(BlockedAccount, State#state.accounts),
+  {reply, Reply, NewState};
 
 handle_call({pin_valid, AccountNumber, Pin}, _From, State) ->
   Account = find_account(AccountNumber, State),
@@ -156,7 +175,7 @@ do_deposit(AccountN, Amount, State) ->
 do_balance(AccountN, Pin, State) ->
   Account = find_account(AccountN, State),
   case do_pin_valid(Account, Pin) of
-    true -> Account#account.balance;
+    true -> get_account_balance(Account);
     false -> {error, "PIN code not valid!"}
   end.
 
@@ -190,6 +209,17 @@ do_change_pin(User, OldPin, NewPin, State) ->
                   Accounts),
       {ok, State#state{accounts = Accounts1}}
   end.
+
+do_block(Account=#account{blocked=false}) ->
+  BlockedAccount = Account#account{blocked=true},
+  {ok, BlockedAccount}.
+
+get_account_balance(#account{blocked=true}) ->
+  default_blocked_balance();
+get_account_balance(#account{balance=Balance}) ->
+  Balance. 
+
+default_blocked_balance() -> 10.
 
 code_change(_, _, _) -> exit(not_implemented).
 
