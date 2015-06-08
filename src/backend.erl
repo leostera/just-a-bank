@@ -4,12 +4,18 @@
 %%% Copyright: 1999-2012 Erlang Solutions Ltd.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(backend).
--include("backend.hrl").
--export([start/0, start_link/0, stop/0, init/0,
+-include("../include/backend.hrl").
+-export([start/0, start_link/0, stop/0, init/1,
          account/1, pin_valid/2, change_pin/3,
          balance/2, transactions/2,
          withdraw/3, deposit/2, transfer/4
         ]).
+
+-export([code_change/3,
+         terminate/2,
+         handle_cast/2,
+         handle_info/2,
+         handle_call/3]).
 
 -define(DB, db_list).
 -define(ACCOUNTS,
@@ -21,11 +27,18 @@
 
 -record(state, {accounts}).
 
-start() -> spawn(?MODULE, init, []).
+-behavior(gen_server).
 
-start_link() -> {ok, spawn_link(?MODULE, init, [])}.
+start() ->
+  gen_server:start({local, ?MODULE}, ?MODULE, [], []).
 
-stop() -> ?MODULE ! stop.
+start_link() ->
+  gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+stop() ->
+  gen_server:call(?MODULE, stop).
+
+terminate(_Reason, _State) -> ok.
 
 account(Account) -> 
   gen_server:call(?MODULE, {account, Account}).
@@ -35,7 +48,6 @@ pin_valid(AccountNo, Input) ->
 
 change_pin(User, OldPin, NewPin) -> 
   gen_server:call(?MODULE, {change_pin, User, OldPin, NewPin}).
-
 
 withdraw(AccountNo, Pin, Amount) -> 
   gen_server:call(?MODULE, {withdraw, AccountNo, Pin, Amount}).
@@ -52,11 +64,8 @@ balance(AccountNo, Pin) ->
 transactions(AccountNo, Pin) -> 
   gen_server:call(?MODULE, {transactions, AccountNo, Pin}).
 
-reply(To, X) -> To ! {?MODULE, reply, X}.
-
-init() ->
+init(_Args) ->
   process_flag(trap_exit, true),
-  register(?MODULE, self()),
   Accounts = lists:foldl(fun({No, Balance, Pin, Name}, DB) ->
                              ?DB:insert(new_account(No, Balance, Pin, Name), DB)
                          end,
@@ -64,57 +73,53 @@ init() ->
                          ?ACCOUNTS),
   {ok, #state{accounts = Accounts}}.
 
-loop(State) ->
-  receive 
-    {{account, Accounts}, From} ->
-      Reply =
-	case Accounts of
-	  all ->
-	    lists:map(fun(#account{no = No, name = Name}) -> {No, Name} end,
-		      ?DB:db_to_list(State#state.accounts));
-	  Name when is_list(Name) -> find_account(Name, State);
-	  No when is_integer(No) -> [find_account(No, State)]
-	end,
-      reply(From, Reply),
-      loop(State);
-    {{pin_valid, AccountNumber, Pin}, From} ->
-      Account = find_account(AccountNumber, State),
-      reply(From, do_pin_valid(Account, Pin)),
-      loop(State);
-    {{new_account, [Balance, Pin, Name]}, From} ->
-      Accounts = State#state.accounts,
-      No = ?DB:db_size(Accounts) + 1,
-      NewAccounts = ?DB:insert(new_account(No, Balance, Pin, Name), Accounts),
-      reply(From, ok),
-      loop(State#state{accounts = NewAccounts});
-    {{balance, AccountN, Pin}, From} ->
-      reply(From, do_balance(AccountN, Pin, State)),
-      loop(State);
-    {{transactions, AccountN, Pin}, From} ->
-      reply(From, do_transactions(AccountN, Pin, State)),
-      loop(State);
-    {{withdraw, FromAccountN, Pin, Amount}, From} ->
-      case do_withdraw(FromAccountN, Pin, Amount, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    {{deposit, ToAccountN, Amount}, From} ->
-      case do_deposit(ToAccountN, Amount, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    {{transfer, FromAccountN, ToAccountN, Pin, Amount}, From} ->
-      case do_transfer(FromAccountN, ToAccountN, Pin, Amount, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    {{change_pin, User, OldPin, NewPin}, From} ->
-      case do_change_pin(User, OldPin, NewPin, State) of
-	{ok, NewState} -> reply(From, ok), loop(NewState);
-	{error, Reason} -> reply(From, {error, Reason}), loop(State)
-      end;
-    stop -> normal
-  end.
+handle_call({account, Accounts}, _From, State) ->
+  Reply = case Accounts of
+            all ->
+              lists:map(fun(#account{no = No, name = Name}) -> {No, Name} end,
+                        ?DB:db_to_list(State#state.accounts));
+            Name when is_list(Name) -> find_account(Name, State);
+            No when is_integer(No) -> [find_account(No, State)]
+          end,
+  {reply, Reply, State};
+
+handle_call({pin_valid, AccountNumber, Pin}, _From, State) ->
+  Account = find_account(AccountNumber, State),
+  Reply = do_pin_valid(Account, Pin),
+  {reply, Reply, State};
+
+handle_call({new_account, [Balance, Pin, Name]}, _From, State) ->
+  Accounts = State#state.accounts,
+  No = ?DB:db_size(Accounts) + 1,
+  NewAccounts = ?DB:insert(new_account(No, Balance, Pin, Name), Accounts),
+  Reply = ok,
+  NewState = State#state{accounts = NewAccounts},
+  {reply, Reply, NewState};
+
+handle_call({balance, AccountN, Pin}, _From, State) ->
+  Reply = do_balance(AccountN, Pin, State),
+  {reply, Reply, State};
+
+handle_call({transactions, AccountN, Pin}, _From, State) ->
+  Reply = do_transactions(AccountN, Pin, State),
+  {reply, Reply, State};
+
+handle_call({withdraw, FromAccountN, Pin, Amount}, _From, State) ->
+  handle_action( do_withdraw(FromAccountN, Pin, Amount, State) );
+
+handle_call({deposit, ToAccountN, Amount}, _From, State) ->
+  handle_action( do_deposit(ToAccountN, Amount, State) );
+
+handle_call({transfer, FromAccountN, ToAccountN, Pin, Amount}, _From, State) ->
+  handle_action( do_transfer(FromAccountN, ToAccountN, Pin, Amount, State) );
+
+handle_call({change_pin, User, OldPin, NewPin}, _From, State) ->
+  handle_action( do_change_pin(User, OldPin, NewPin, State) );
+
+handle_call({stop, _Reason}, _From, _State) -> {stop, normal}.
+
+handle_action({ok, NewState, _State}) -> {reply, ok, NewState};
+handle_action({error, Reason, State}) -> {reply, {error, Reason}, State}.
 
 new_account(No, Balance, Pin, Name) ->
   #account{no = No, balance = Balance, pin = Pin, name = Name}.
@@ -127,7 +132,7 @@ find_account(User, State) when is_list(User) ->
 do_withdraw(_, _, Amount, _) when Amount < 0 -> {error, "Negative value"};
 do_withdraw(AccountN, Pin, Amount, State) ->
   Account = #account{balance = OldBalance, transactions = OldTransactions} =
-    find_account(AccountN, State),
+  find_account(AccountN, State),
   case do_pin_valid(Account, Pin) of
     false -> {error, "PIN code not valid!"};
     true when OldBalance < Amount -> {error, "Not enough money on account!"};
@@ -135,18 +140,18 @@ do_withdraw(AccountN, Pin, Amount, State) ->
       NewBalance = OldBalance - Amount,
       NewTransactions = [{withdraw, date(), Amount} | OldTransactions],
       AccountUpdated =
-	Account#account{balance = NewBalance, transactions = NewTransactions},
+      Account#account{balance = NewBalance, transactions = NewTransactions},
       NewAccounts = ?DB:update(AccountUpdated, State#state.accounts),
       {ok, State#state{accounts = NewAccounts}}
   end.
 
 do_deposit(AccountN, Amount, State) ->
   Account = #account{balance = OldBalance, transactions = OldTransactions} =
-    find_account(AccountN, State),
+  find_account(AccountN, State),
   NewBalance = OldBalance + Amount,
   NewTransactions = [{deposit, date(), Amount} | OldTransactions],
   AccountUpdated =
-    Account#account{balance = NewBalance, transactions = NewTransactions},
+  Account#account{balance = NewBalance, transactions = NewTransactions},
   NewAccounts = ?DB:update(AccountUpdated, State#state.accounts),
   {ok, State#state{accounts = NewAccounts}}.
 
@@ -156,7 +161,7 @@ do_balance(AccountN, Pin, State) ->
     true -> Account#account.balance;
     false -> {error, "PIN code not valid!"}
   end.
-	
+
 do_transactions(AccountN, Pin, State) ->
   Account = find_account(AccountN, State),
   case do_pin_valid(Account, Pin) of
@@ -180,11 +185,14 @@ do_change_pin(User, OldPin, NewPin, State) ->
     false -> {error, "Wrong Pin"};
     true ->
       Accounts1 =
-        lists:foldl(fun(Account, Acc) ->
-                        ?DB:update(Account#account{pin = NewPin}, Acc)
-                    end,
-                    State#state.accounts,
-                    Accounts),
+      lists:foldl(fun(Account, Acc) ->
+                      ?DB:update(Account#account{pin = NewPin}, Acc)
+                  end,
+                  State#state.accounts,
+                  Accounts),
       {ok, State#state{accounts = Accounts1}}
   end.
 
+code_change(_, _, _) -> exit(not_implemented).
+handle_cast(_, _) -> exit(not_implemented).
+handle_info(_, _) -> exit(not_implemented).
