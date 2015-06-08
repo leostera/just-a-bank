@@ -105,21 +105,19 @@ handle_call({transactions, AccountN, Pin}, _From, State) ->
   {reply, Reply, State};
 
 handle_call({withdraw, FromAccountN, Pin, Amount}, _From, State) ->
-  handle_action( do_withdraw(FromAccountN, Pin, Amount, State) );
+  handle_action( do_withdraw(FromAccountN, Pin, Amount, State), State);
 
 handle_call({deposit, ToAccountN, Amount}, _From, State) ->
-  handle_action( do_deposit(ToAccountN, Amount, State) );
+  handle_action( do_deposit(ToAccountN, Amount, State), State);
 
 handle_call({transfer, FromAccountN, ToAccountN, Pin, Amount}, _From, State) ->
-  handle_action( do_transfer(FromAccountN, ToAccountN, Pin, Amount, State) );
+  handle_action( do_transfer(FromAccountN, ToAccountN, Pin, Amount, State), State);
 
 handle_call({change_pin, User, OldPin, NewPin}, _From, State) ->
-  handle_action( do_change_pin(User, OldPin, NewPin, State) );
+  handle_action( do_change_pin(User, OldPin, NewPin, State), State).
 
-handle_call({stop, _Reason}, _From, _State) -> {stop, normal}.
-
-handle_action({ok, NewState, _State}) -> {reply, ok, NewState};
-handle_action({error, Reason, State}) -> {reply, {error, Reason}, State}.
+handle_action({ok, NewState}, _State) -> {reply, ok, NewState};
+handle_action({error, Reason}, State) -> {reply, {error, Reason}, State}.
 
 new_account(No, Balance, Pin, Name) ->
   #account{no = No, balance = Balance, pin = Pin, name = Name}.
@@ -194,5 +192,8 @@ do_change_pin(User, OldPin, NewPin, State) ->
   end.
 
 code_change(_, _, _) -> exit(not_implemented).
+
+handle_cast({stop, _Reason}, _From) -> {stop, normal};
 handle_cast(_, _) -> exit(not_implemented).
+
 handle_info(_, _) -> exit(not_implemented).
