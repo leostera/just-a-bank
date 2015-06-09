@@ -98,8 +98,8 @@ handle_call({account, Accounts}, _From, State) ->
 
 handle_call({block, AccountNumber}, _From, State) ->
   Account = find_account(AccountNumber, State),
-  Reply = {ok, BlockedAccount} = do_block(Account),
-  NewState = ?DB:update(BlockedAccount, State#state.accounts),
+  {ok, BlockedAccount, NewState} = do_block(Account, State),
+  Reply = {ok, BlockedAccount},
   {reply, Reply, NewState};
 
 handle_call({pin_valid, AccountNumber, Pin}, _From, State) ->
@@ -148,8 +148,9 @@ find_account(User, State) when is_list(User) ->
 
 do_withdraw(_, _, Amount, _) when Amount < 0 -> {error, "Negative value"};
 do_withdraw(AccountN, Pin, Amount, State) ->
-  Account = #account{balance = OldBalance, transactions = OldTransactions} =
+  Account = #account{transactions = OldTransactions} =
   find_account(AccountN, State),
+  OldBalance = get_account_balance(Account),
   case do_pin_valid(Account, Pin) of
     false -> {error, "PIN code not valid!"};
     true when OldBalance < Amount -> {error, "Not enough money on account!"};
@@ -210,9 +211,12 @@ do_change_pin(User, OldPin, NewPin, State) ->
       {ok, State#state{accounts = Accounts1}}
   end.
 
-do_block(Account=#account{blocked=false}) ->
+do_block(Account=#account{blocked=false}, State) ->
+  Accounts = State#state.accounts,
   BlockedAccount = Account#account{blocked=true},
-  {ok, BlockedAccount}.
+  NewAccounts = ?DB:update(BlockedAccount, Accounts),
+  NewState = State#state{accounts=NewAccounts},
+  {ok, BlockedAccount, NewState}.
 
 get_account_balance(#account{blocked=true}) ->
   default_blocked_balance();
