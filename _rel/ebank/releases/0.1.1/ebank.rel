@@ -1,0 +1,7 @@
+{release,{"ebank","0.1.1"},
+         {erts,"6.4"},
+         [{kernel,"3.2"},
+          {stdlib,"2.4"},
+          {sasl,"2.4.1"},
+          {inets,"5.10.6"},
+          {ebank,"1.0"}]}. 
