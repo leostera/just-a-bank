@@ -1,0 +1,126 @@
+
+=====
+===== LOGGING STARTED Wed Jun 10 16:09:42 CEST 2015
+=====
+Exec: /Users/leostera/repos/ebank/_rel/ebank/erts-6.4/bin/erlexec -boot /Users/leostera/repos/ebank/_rel/ebank/releases/0.1.1/ebank -boot_var ERTS_LIB_DIR /Users/leostera/repos/ebank/_rel/ebank/erts-6.4/../lib -env ERL_LIBS /Users/leostera/repos/ebank/_rel/ebank/releases/0.1.1/lib -config /Users/leostera/repos/ebank/_rel/ebank/releases/0.1.1/sys.config -args_file /Users/leostera/repos/ebank/_rel/ebank/releases/0.1.1/vm.args -- console
+Root: /Users/leostera/repos/ebank/_rel/ebank
+/Users/leostera/repos/ebank/_rel/ebank
+Erlang/OTP 17 [erts-6.4] [source] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false] [dtrace]
+
+
+=PROGRESS REPORT==== 10-Jun-2015::16:09:42 ===
+          supervisor: {local,sasl_safe_sup}
+             started: [{pid,<0.41.0>},
+                       {name,alarm_handler},
+                       {mfargs,{alarm_handler,start_link,[]}},
+                       {restart_type,permanent},
+                       {shutdown,2000},
+                       {child_type,worker}]
+
+=PROGRESS REPORT==== 10-Jun-2015::16:09:42 ===
+          supervisor: {local,sasl_safe_sup}
+             started: [{pid,<0.42.0>},
+                       {name,overload},
+                       {mfargs,{overload,start_link,[]}},
+                       {restart_type,permanent},
+                       {shutdown,2000},
+                       {child_type,worker}]
+
+=PROGRESS REPORT==== 10-Jun-2015::16:09:42 ===
+          supervisor: {local,sasl_sup}
+             started: [{pid,<0.40.0>},
+                       {name,sasl_safe_sup},
+                       {mfargs,
+                           {supervisor,start_link,
+                               [{local,sasl_safe_sup},sasl,safe]}},
+                       {restart_type,permanent},
+                       {shutdown,infinity},
+                       {child_type,supervisor}]
+
+=PROGRESS REPORT==== 10-Jun-2015::16:09:42 ===
+          supervisor: {local,sasl_sup}
+             started: [{pid,<0.43.0>},
+                       {name,release_handler},
+                       {mfargs,{release_handler,start_link,[]}},
+                       {restart_type,permanent},
+                       {shutdown,2000},
+                       {child_type,worker}]
+
+=PROGRESS REPORT==== 10-Jun-2015::16:09:42 ===
+         application: sasl
+          started_at: 'ebank@127.0.0.1'
+
+=CRASH REPORT==== 10-Jun-2015::16:09:42 ===
+  crasher:
+    initial call: web:init/1
+    pid: <0.48.0>
+    registered_name: []
+    exception exit: {{badmatch,{error,{"no such file or directory",
+                                       "inets.app"}}},
+                     [{web,init,1,[{file,"src/web.erl"},{line,108}]},
+                      {gen_server,init_it,6,
+                                  [{file,"gen_server.erl"},{line,306}]},
+                      {proc_lib,init_p_do_apply,3,
+                                [{file,"proc_lib.erl"},{line,237}]}]}
+      in function  gen_server:init_it/6 (gen_server.erl, line 330)
+    ancestors: [<0.47.0>]
+    messages: []
+    links: []
+    dictionary: []
+    trap_exit: false
+    status: running
+    heap_size: 610
+    stack_size: 27
+    reductions: 155
+  neighbours:
+
+=PROGRESS REPORT==== 10-Jun-2015::16:09:42 ===
+          supervisor: {local,ebank_sup}
+             started: [{pid,<0.50.0>},
+                       {name,backend},
+                       {mfargs,{backend,start_link,[]}},
+                       {restart_type,permanent},
+                       {shutdown,brutal_kill},
+                       {child_type,worker}]
+
+=CRASH REPORT==== 10-Jun-2015::16:09:42 ===
+  crasher:
+    initial call: application_master:init/4
+    pid: <0.46.0>
+    registered_name: []
+    exception exit: {bad_return,
+                        {{ebank_app,start,[normal,[]]},
+                         {'EXIT',
+                             {undef,
+                                 [{ebank,start_atm,[default,8081],[]},
+                                  {application_master,start_it_old,4,
+                                      [{file,"application_master.erl"},
+                                       {line,272}]}]}}}}
+      in function  application_master:init/4 (application_master.erl, line 133)
+    ancestors: [<0.45.0>]
+    messages: [{'EXIT',<0.47.0>,normal}]
+    links: [<0.45.0>,<0.7.0>]
+    dictionary: []
+    trap_exit: true
+    status: running
+    heap_size: 376
+    stack_size: 27
+    reductions: 121
+  neighbours:
+
+=INFO REPORT==== 10-Jun-2015::16:09:42 ===
+    application: ebank
+    exited: {bad_return,
+                {{ebank_app,start,[normal,[]]},
+                 {'EXIT',
+                     {undef,
+                         [{ebank,start_atm,[default,8081],[]},
+                          {application_master,start_it_old,4,
+                              [{file,"application_master.erl"},
+                               {line,272}]}]}}}}
+    type: permanent
+Eshell V6.4  (abort with ^G)
+(ebank@127.0.0.1)1> {"Kernel pid terminated",application_controller,"{application_start_failure,ebank,{bad_return,{{ebank_app,start,[normal,[]]},{'EXIT',{undef,[{ebank,start_atm,[default,8081],[]},{application_master,start_it_old,4,[{file,\"application_master.erl\"},{line,272}]}]}}}}}"}
+
+Crash dump was written to: erl_crash.dump
+Kernel pid terminated (application_controller) ({application_start_failure,ebank,{bad_return,{{ebank_app,start,[normal,[]]},{'EXIT',{undef,[{ebank,start_atm,[default,8081],[]},{application_master,st
